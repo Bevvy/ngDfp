@@ -22,7 +22,7 @@ angular.module('ngDfp', [])
      */
     var sizeMapping = {};
 
-    /** 
+    /**
      If configured, all ads will be refreshed at the same interval
      */
     var refreshInterval = null;
@@ -33,6 +33,12 @@ angular.module('ngDfp', [])
     var enabled = true;
 
     /**
+     If true, disables requests for ads on page load, but allow ads to be requested with
+     a googletag.pubads().refresh() call.
+     */
+    var disableInitialLoad = false;
+
+    /**
      Defined Page targeting key->values
      */
     var pageTargeting = {};
@@ -41,11 +47,11 @@ angular.module('ngDfp', [])
      Collapse empty divs if true
      */
     var collapseEmptyDivs = false;
-     
+
      /**
      Center divs if true
      */
-    var setCentering = false;  
+    var setCentering = false;
 
     /**
      * If true, enables Single Request Architecture (SRA)
@@ -71,7 +77,7 @@ angular.module('ngDfp', [])
       gads.async = true;
       gads.type  = 'text/javascript';
       gads.src   = (useSSL ? 'https:' : 'http:') + ngDfpUrl;
-      
+
       // Insert before any JS include.
       node.parentNode.insertBefore(gads, node);
 
@@ -100,7 +106,7 @@ angular.module('ngDfp', [])
           /**
            If sent, set the slot specific targeting
            */
-	  var slotTargeting = slot.getSlotTargeting();
+          var slotTargeting = slot.getSlotTargeting();
           if(slotTargeting){
             angular.forEach(slotTargeting, function (value, key) {
               definedSlots[id].setTargeting(value.id, value.value);
@@ -108,7 +114,7 @@ angular.module('ngDfp', [])
           }
         });
 
-	      /**
+        /**
          Set the page targeting key->values
          */
         angular.forEach(pageTargeting, function (value, key) {
@@ -119,14 +125,21 @@ angular.module('ngDfp', [])
          If requested set to true the collapseEmptyDivs
          */
         if (collapseEmptyDivs) {
-          googletag.pubads().collapseEmptyDivs();
+          googletag.pubads().collapseEmptyDivs(true);
         }
-	      
-	/**
+
+        /**
          If requested set to true the setCentering
          */
         if (setCentering) {
-          googletag.pubads().setCentering(true); 
+          googletag.pubads().setCentering(true);
+        }
+
+        /**
+         If requested set to true call disableInitialLoad()
+         */
+        if (disableInitialLoad) {
+          googletag.pubads().disableInitialLoad();
         }
 
         if (enableSingleRequest) {
@@ -140,7 +153,7 @@ angular.module('ngDfp', [])
 
     this._slotRenderEnded = function (event) {
       var callback = slots[event.slot.getSlotId().getDomId()].renderCallback;
-      
+
       if (typeof callback === 'function') {
         callback(event);
       }
@@ -208,7 +221,7 @@ angular.module('ngDfp', [])
       if(!sizeMapping[id]){
         sizeMapping[id] = [];
       }
-      
+
       // Add a new size mapping ( [browser size], [slot size])
       this.addSize = function() {
         sizeMapping[id].push([arguments[0], arguments[1]]);
@@ -225,6 +238,19 @@ angular.module('ngDfp', [])
      */
     this.setEnabled = function (setting) {
       enabled = setting;
+
+      // Chaining.
+      return this;
+    };
+
+    /**
+     Disables loading ads on initial page load, and requires ads to display via refresh()
+     */
+    this.disableInitialLoad = function () {
+      disableInitialLoad = true;
+
+      // Chaining.
+      return this;
     };
 
     /**
@@ -232,6 +258,9 @@ angular.module('ngDfp', [])
      */
     this.setPageTargeting = function (key, value) {
       pageTargeting[key] = value;
+
+      // Chaining.
+      return this;
     };
 
     /**
@@ -239,13 +268,19 @@ angular.module('ngDfp', [])
      */
     this.collapseEmptyDivs = function () {
       collapseEmptyDivs = true;
+
+      // Chaining.
+      return this;
     };
-	  
+
     /**
      Set to true the setCentering
      */
     this.setCentering = function (bool) {
       setCentering = bool;
+
+      // Chaining.
+      return this;
     };
 
     /**
@@ -254,6 +289,9 @@ angular.module('ngDfp', [])
      */
     this.setSingleRequest = function (isEnable) {
       enableSingleRequest = isEnable;
+
+      // Chaining.
+      return this;
     };
 
     // Public factory API.
@@ -275,11 +313,11 @@ angular.module('ngDfp', [])
 
         deferred.resolve();
       });
-      
+
       return {
         /**
-         More than just getting the ad size, this 
-         allows us to wait for the JS file to finish downloading and 
+         More than just getting the ad size, this
+         allows us to wait for the JS file to finish downloading and
          configuring ads
 
          @deprecated Use getSlot().getSize() instead.
@@ -315,6 +353,7 @@ angular.module('ngDfp', [])
         runAd: function (id) {
           googletag.cmd.push(function() {
             $window.googletag.display(id);
+            console.log('runAd() called, googletag.display('+id+')');
           });
         },
 
@@ -329,13 +368,64 @@ angular.module('ngDfp', [])
         refreshAds: function () {
           var slots = [];
 
+          // console.log('arguments: ');
+          // console.log(arguments);
+          // console.log(definedSlots);
+
           angular.forEach(arguments, function (id) {
+            // console.log('pushing definedSlots['+id+'] = '+definedSlots[id]);
             slots.push(definedSlots[id]);
           });
 
+          if (slots.length) {
+            // refresh specified slots
+            googletag.cmd.push(function() {
+              $window.googletag.pubads().refresh(slots);
+              console.log('refreshAds(' + slots.toString() + ') called');
+            });
+          } else {
+            // refresh all slots
+            googletag.cmd.push(function() {
+              $window.googletag.pubads().refresh();
+              console.log('ngDfp refreshAds() called');
+            });
+          }
+        },
+
+        /**
+         Clears custom targeting attributes for a specific key or for all keys
+         */
+        clearTargeting: function (key) {
+          if (angular.isDefined(key)) {
+            googletag.cmd.push(function() {
+              $window.googletag.pubads().clearTargeting(key);       // clear key
+              console.log('clearing targeting for '+key);
+            });
+          } else {
+            googletag.cmd.push(function() {
+              $window.googletag.pubads().clearTargeting();          // clear all keys
+              console.log('clearing all targeting');
+            });
+          };
+
+          // Chaining.
+          return this;
+        },
+
+        /**
+         * enables dynamic setting of custom targeting attributes
+         *
+         * @param string key
+         * @param string value
+         */
+        setTargeting: function (key, value) {
           googletag.cmd.push(function() {
-            $window.googletag.pubads().refresh(slots);
+            $window.googletag.pubads().setTargeting(key, value);
+            console.log('added targeting: '+key+' => '+value);
           });
+
+          // Chaining.
+          return this;
         }
       };
     }];
@@ -401,25 +491,38 @@ angular.module('ngDfp', [])
             element.css('width', size[0]).css('height', size[1]);
             $timeout(function () {
               DoubleClick.runAd(id);
-            });
 
-            // Only if we have a container we hide this thing
-            if (ngDfpAdContainer) {
-              slot.setRenderCallback(function () {
-                if (angular.isDefined(attrs.ngDfpAdHideWhenEmpty)) {
-                  if (element.find('iframe:not([id*=hidden])')
-                             .map(function () { return this.contentWindow.document; })
-                             .find("body")
-                             .children().length === 0) {
-                    // Hide it
-                    ngDfpAdContainer.$$setVisible(false, attrs.ngDfpAdHideWhenEmpty);
-                  }
-                  else {
-                    ngDfpAdContainer.$$setVisible(true, attrs.ngDfpAdHideWhenEmpty);
-                  }
+                // Only if we have a container we hide this thing
+                if (ngDfpAdContainer) {
+                  slot.setRenderCallback(function () {
+                    // console.log(element.find('iframe:not([id*=hidden])'));
+
+                    var _body = element.find('iframe:not([id*=hidden])')
+                                       .map(function () { return this.contentWindow.document; })
+                                       .find("body");
+                    // console.log('_body:');
+                    // console.log(_body);
+                    // console.log('height: ' + _body.height());
+                    // console.log('_body[0]');
+                    // console.log(_body[0]);
+                    // console.log('children: ' + _body.children());
+                    // console.log('children length: ' + _body.children().length);
+
+                    if (angular.isDefined(attrs.ngDfpAdHideWhenEmpty)) {
+                      if (element.find('iframe:not([id*=hidden])')
+                                 .map(function () { return this.contentWindow.document; })
+                                 .find("body")
+                                 .children().length === 0) {
+                        // Hide it
+                        ngDfpAdContainer.$$setVisible(false, attrs.ngDfpAdHideWhenEmpty);
+                      }
+                      else {
+                        ngDfpAdContainer.$$setVisible(true, attrs.ngDfpAdHideWhenEmpty);
+                      }
+                    }
+                  });
                 }
-              });
-            }
+            });
 
             // Forces Refresh
             scope.$watch('refresh', function (refresh) {
